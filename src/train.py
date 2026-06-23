@@ -13,16 +13,25 @@ API_KEY        = "eivXhHMtMfygEMz58GfH"
 WORKSPACE      = "miljanas-workspace"
 PROJECT_NAME   = "is_mackeee_nadji"
 VERSION        = 3
-
-EPOCHS         = 50
+EPOCHS         = 300
 IMGSZ          = 640
 BATCH          = 16
-PATIENCE       = 10
+PATIENCE       = 15
 SEED           = 42
 SAVE_PERIOD    = 5          # čuvaj checkpoint svakih N epoha (za epoch snapshots)
-PRETRAINED     = "yolov8n.pt"
+PRETRAINED     = "yolov8n.yaml"
 RUN_NAME       = "cat_detection"
 PROJECT_DIR    = "runs/train"
+#####################################################################################################################
+#####################################################################################################################
+
+#prbolem 1 .pt je pretreind treb .yaml da ide od nule
+# 300 epoha + early stopping sa patience 15 npr
+# cuvati kroz epohe
+#na kraju testirati na raznim zivotinjama koje lice
+
+#####################################################################################################################
+#####################################################################################################################
 
 # Koliko validacionih slika prikazati po epohi u snapshotima
 SNAPSHOT_COUNT = 4
@@ -99,6 +108,14 @@ def detection_f1(precision: float, recall: float) -> float:
 # PROVERA DATASETA
 # ──────────────────────────────────────────────
 
+def resolve_split_dir(base: Path, split_path: str) -> Path:
+    """Roboflow upisuje putanje u data.yaml kao '../train/images', ali train/valid/test
+    folderi su u stvarnosti na istom nivou kao data.yaml (ne iznad). Skidamo taj
+    '../' prefiks da bismo dobili tačnu putanju relativnu na folder gde je data.yaml."""
+    if split_path.startswith("../"):
+        split_path = split_path[3:]
+    return (base / split_path).resolve()
+
 def check_dataset(data_yaml: Path) -> None:
     import yaml
     cfg = yaml.safe_load(data_yaml.read_text())
@@ -110,8 +127,9 @@ def check_dataset(data_yaml: Path) -> None:
         if split not in cfg:
             errors.append(f"Split '{split}' ne postoji u data.yaml.")
             continue
-        images_dir = (base / cfg[split].replace("..", str(base))).resolve()
-        labels_dir = (base / cfg[split].replace("..", str(base)).replace("images", "labels")).resolve()
+
+        images_dir = resolve_split_dir(base, cfg[split])
+        labels_dir = Path(str(images_dir).replace("images", "labels"))
         print(f"  Trazim slike za '{split}' u: {images_dir}")
 
         if not images_dir.exists():
@@ -234,6 +252,8 @@ def save_epoch_snapshot(model: YOLO, epoch: int, val_images: list[Path], labels_
 def add_snapshot_callback(model: YOLO, val_images: list[Path], labels_dir: Path, save_dir: Path, device: str) -> None:
     def on_fit_epoch_end(trainer):
         epoch = int(getattr(trainer, "epoch", 0)) + 1
+        if epoch != 1 and epoch % SAVE_PERIOD != 0:
+            return
         weights_path = Path(getattr(trainer, "last", Path(trainer.save_dir) / "weights" / "last.pt"))
         if not weights_path.exists():
             return
@@ -333,7 +353,7 @@ def print_metrics(title: str, metrics) -> None:
     print(f"{'─'*40}")
 
 
-def write_summary(save_dir: Path, val_metrics, test_metrics, device: str) -> None:
+def write_summary(save_dir: Path, val_metrics, test_metrics, device: str, actual_epochs: int) -> None:
     def metric_block(title, m):
         p, r = m.box.mp, m.box.mr
         return [
@@ -344,13 +364,16 @@ def write_summary(save_dir: Path, val_metrics, test_metrics, device: str) -> Non
             f"  Recall:   {r:.4f}",
             f"  F1:       {detection_f1(p, r):.4f}",
         ]
+    
+    early_stopped = actual_epochs < EPOCHS
 
     lines = [
         "═══ TRAINING SUMMARY ═══",
         "",
         f"Uredjaj:  {device}",
         f"Model:    {PRETRAINED}",
-        f"Epohe:    {EPOCHS}",
+        f"Epohe (max):   {EPOCHS}",
+        f"Epohe (zapravo): {actual_epochs}" + ("  (zaustavljeno early stopping-om)" if early_stopped else ""),
         f"Imgsz:    {IMGSZ}",
         f"Batch:    {BATCH}",
         f"Patience: {PATIENCE}",
@@ -387,12 +410,12 @@ def main() -> None:
     import yaml
     cfg = yaml.safe_load(data_yaml.read_text())
     base = data_yaml.parent
-    val_images_dir = (base / cfg["val"].replace("..", str(base))).resolve()
-    val_labels_dir = (base / cfg["val"].replace("..", str(base)).replace("images", "labels")).resolve()
+    val_images_dir = resolve_split_dir(base, cfg["val"])
+    val_labels_dir = Path(str(val_images_dir).replace("images", "labels"))
     val_images = list_images(val_images_dir)
 
     # 4. Trening
-    print(f"\nPokrecem trening ({EPOCHS} epoha)...")
+    print(f"\nPokrecem trening ({EPOCHS} epoha, patience={PATIENCE})...")
     model = YOLO(PRETRAINED)
 
     # Snapshot folder — znaćemo ga tek posle treninga, privremeno koristimo placeholder
@@ -408,7 +431,7 @@ def main() -> None:
         patience=PATIENCE,
         seed=SEED,
         save_period=SAVE_PERIOD,
-        workers=0,
+        workers=8,
         project=PROJECT_DIR,
         name=RUN_NAME,
     )
@@ -416,8 +439,17 @@ def main() -> None:
     save_dir   = Path(results.save_dir)
     best_model = save_dir / "weights" / "best.pt"
     last_model = save_dir / "weights" / "last.pt"
+
+    actual_epochs = int(getattr(model.trainer, "epoch", EPOCHS - 1)) + 1
+
     print(f"\nTrening zavrsen. Rezultati: {save_dir}")
     print(f"Najbolji model: {best_model}")
+
+    # koliko epoha je trening zapravo trajao, da li je doslo do early stoppinga
+
+    if actual_epochs < EPOCHS:
+        print(f"⚠ Early stopping aktiviran posle {actual_epochs}/{EPOCHS} epoha "
+              f"(nema poboljsanja {PATIENCE} epoha zaredom).")
 
     # 5. Validacija
     print("\nPokrecem validaciju (best.pt)...")
@@ -449,7 +481,7 @@ def main() -> None:
     print_metrics("TEST", test_metrics)
 
     # 7. Training summary
-    write_summary(save_dir, val_metrics, test_metrics, device)
+    write_summary(save_dir, val_metrics, test_metrics, device, actual_epochs)
 
     # 8. Analiza grešaka
     analyze_errors(best, val_images, val_labels_dir, device, save_dir / "validation_errors.txt")
