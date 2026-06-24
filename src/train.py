@@ -5,38 +5,20 @@ from PIL import Image, ImageDraw
 from roboflow import Roboflow
 from ultralytics import YOLO
 
-# ──────────────────────────────────────────────
-# KONFIGURACIJA — menjaj ovde
-# ──────────────────────────────────────────────
+from config import (
+    API_KEY, WORKSPACE, PROJECT_NAME, VERSION,
+    EPOCHS, IMGSZ, BATCH, PATIENCE, SEED, SAVE_PERIOD,
+    PRETRAINED, RUN_NAME, PROJECT_DIR,
+    MOSAIC, COPY_PASTE, SCALE, MIXUP, HSV_V, TRANSLATE, BOX_GAIN, CLS_GAIN,
+    CONF_THRESHOLD, IOU_NMS, IOU_MATCH_THRESHOLD, SNAPSHOT_COUNT,
+)
+from analysis import print_metrics, write_summary, analyze_errors
+from dataset import check_dataset, list_images, resolve_split_dir, generate_dataset_report
 
-API_KEY        = "eivXhHMtMfygEMz58GfH"
-WORKSPACE      = "miljanas-workspace"
-PROJECT_NAME   = "is_mackeee_nadji"
-VERSION        = 3
-EPOCHS         = 300
-IMGSZ          = 640
-BATCH          = 16
-PATIENCE       = 15
-SEED           = 42
-SAVE_PERIOD    = 5          # čuvaj checkpoint svakih N epoha (za epoch snapshots)
-PRETRAINED     = "yolov8n.yaml"
-RUN_NAME       = "cat_detection"
-PROJECT_DIR    = "runs/train"
-#####################################################################################################################
-#####################################################################################################################
-
-#prbolem 1 .pt je pretreind treb .yaml da ide od nule
-# 300 epoha + early stopping sa patience 15 npr
-# cuvati kroz epohe
-#na kraju testirati na raznim zivotinjama koje lice
-
-#####################################################################################################################
-#####################################################################################################################
-
-# Koliko validacionih slika prikazati po epohi u snapshotima
-SNAPSHOT_COUNT = 4
-CONF_THRESHOLD = 0.25       # prag za analizu grešaka
-IOU_THRESHOLD  = 0.45       # IoU prag za matching GT i predikcija
+# Napomena: svi hiperparametri se nalaze u config.py, sve funkcije za
+# METRIKE/ANALIZU GRESAKA/SUMMARY u analysis.py, a sve funkcije vezane za
+# DATASET (provera, statistika, putanje) u dataset.py — menjaj ih tamo,
+# ne ovde, da budu uskladjene sa evaluate.py.
 
 # ──────────────────────────────────────────────
 # POMOĆNE FUNKCIJE
@@ -48,11 +30,6 @@ def resolve_device() -> str:
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
-
-
-def list_images(folder: Path) -> list[Path]:
-    extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-    return sorted(p for p in folder.iterdir() if p.suffix.lower() in extensions)
 
 
 def class_color(class_id: int) -> tuple[int, int, int]:
@@ -90,88 +67,8 @@ def read_labels(label_path: Path, w: int, h: int) -> list[dict]:
     return labels
 
 
-def box_iou(a: list, b: list) -> float:
-    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
-    x2, y2 = min(a[2], b[2]), min(a[3], b[3])
-    inter = max(0, x2 - x1) * max(0, y2 - y1)
-    area_a = max(0, a[2] - a[0]) * max(0, a[3] - a[1])
-    area_b = max(0, b[2] - b[0]) * max(0, b[3] - b[1])
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0
-
-
-def detection_f1(precision: float, recall: float) -> float:
-    return 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
-
-
-# ──────────────────────────────────────────────
-# PROVERA DATASETA
-# ──────────────────────────────────────────────
-
-def resolve_split_dir(base: Path, split_path: str) -> Path:
-    """Roboflow upisuje putanje u data.yaml kao '../train/images', ali train/valid/test
-    folderi su u stvarnosti na istom nivou kao data.yaml (ne iznad). Skidamo taj
-    '../' prefiks da bismo dobili tačnu putanju relativnu na folder gde je data.yaml."""
-    if split_path.startswith("../"):
-        split_path = split_path[3:]
-    return (base / split_path).resolve()
-
-def check_dataset(data_yaml: Path) -> None:
-    import yaml
-    cfg = yaml.safe_load(data_yaml.read_text())
-    class_count = int(cfg.get("nc", len(cfg.get("names", []))))
-    errors = []
-    base = data_yaml.parent
-
-    for split in ("train", "val", "test"):
-        if split not in cfg:
-            errors.append(f"Split '{split}' ne postoji u data.yaml.")
-            continue
-
-        images_dir = resolve_split_dir(base, cfg[split])
-        labels_dir = Path(str(images_dir).replace("images", "labels"))
-        print(f"  Trazim slike za '{split}' u: {images_dir}")
-
-        if not images_dir.exists():
-            errors.append(f"Nema foldera sa slikama za '{split}': {images_dir}")
-            continue
-        if not labels_dir.exists():
-            errors.append(f"Nema foldera sa labelama za '{split}': {labels_dir}")
-            continue
-
-        image_paths = list_images(images_dir)
-        if not image_paths:
-            errors.append(f"Split '{split}' nema nijednu sliku.")
-
-        for img_path in image_paths:
-            lbl_path = labels_dir / f"{img_path.stem}.txt"
-            if not lbl_path.exists():
-                errors.append(f"Nedostaje label fajl: {lbl_path}")
-                continue
-            for i, line in enumerate(lbl_path.read_text().splitlines(), 1):
-                if not line.strip():
-                    continue
-                parts = line.split()
-                if len(parts) != 5:
-                    errors.append(f"Los format u {lbl_path}:{i}")
-                    continue
-                try:
-                    cid = int(float(parts[0]))
-                    coords = [float(v) for v in parts[1:]]
-                except ValueError:
-                    errors.append(f"Labela nije broj u {lbl_path}:{i}")
-                    continue
-                if not 0 <= cid < class_count:
-                    errors.append(f"Nepostojeca klasa {cid} u {lbl_path}:{i}")
-                if any(v < 0 or v > 1 for v in coords):
-                    errors.append(f"Koordinate nisu normalizovane u {lbl_path}:{i}")
-
-    if errors:
-        preview = "\n".join(f"  - {e}" for e in errors[:20])
-        extra = f"\n  ... i jos {len(errors) - 20} problema." if len(errors) > 20 else ""
-        raise ValueError(f"Provera dataseta nije prosla:\n{preview}{extra}")
-
-    print(f"✓ Dataset provera prosla — klase: {class_count}, splitovi: train/valid/test")
+# box_iou i detection_f1 su u analysis.py.
+# check_dataset, list_images, resolve_split_dir su u dataset.py.
 
 
 # ──────────────────────────────────────────────
@@ -264,131 +161,6 @@ def add_snapshot_callback(model: YOLO, val_images: list[Path], labels_dir: Path,
 
 
 # ──────────────────────────────────────────────
-# ANALIZA GREŠAKA
-# ──────────────────────────────────────────────
-
-def analyze_errors(model: YOLO, image_paths: list[Path], labels_dir: Path, device: str, save_path: Path) -> None:
-    print("\nAnaliziram greske na validacionom skupu...")
-    results = model.predict(
-        source=[str(p) for p in image_paths],
-        imgsz=IMGSZ,
-        conf=CONF_THRESHOLD,
-        device=device,
-        verbose=False,
-    )
-
-    report = []
-    total_errors = 0
-    images_with_errors = 0
-
-    for img_path, result in zip(image_paths, results):
-        with Image.open(img_path) as im:
-            w, h = im.size
-        labels = read_labels(labels_dir / f"{img_path.stem}.txt", w, h)
-        preds = []
-        if result.boxes is not None:
-            for box, cls, conf in zip(
-                result.boxes.xyxy.cpu().tolist(),
-                result.boxes.cls.cpu().tolist(),
-                result.boxes.conf.cpu().tolist(),
-            ):
-                preds.append({"class_id": int(cls), "box": box, "conf": conf})
-
-        matched = set()
-        image_errors = []
-
-        for gt in labels:
-            best_i, best_iou = None, 0
-            for i, pred in enumerate(preds):
-                if i in matched:
-                    continue
-                iou = box_iou(gt["box"], pred["box"])
-                if iou > best_iou:
-                    best_iou, best_i = iou, i
-
-            gt_name = model.names.get(gt["class_id"], str(gt["class_id"]))
-
-            if best_i is None or best_iou < IOU_THRESHOLD:
-                image_errors.append(f"  - PROMASENO: ocekivano '{gt_name}'")
-            else:
-                matched.add(best_i)
-                pred_name = model.names.get(preds[best_i]["class_id"], str(preds[best_i]["class_id"]))
-                if preds[best_i]["class_id"] != gt["class_id"]:
-                    image_errors.append(
-                        f"  - POGRESNA KLASA: ocekivano '{gt_name}', dobijeno '{pred_name}' "
-                        f"(conf={preds[best_i]['conf']:.2f}, IoU={best_iou:.2f})"
-                    )
-
-        for i, pred in enumerate(preds):
-            if i not in matched:
-                pred_name = model.names.get(pred["class_id"], str(pred["class_id"]))
-                image_errors.append(f"  - VISAK: lazna detekcija '{pred_name}' (conf={pred['conf']:.2f})")
-
-        if image_errors:
-            total_errors += len(image_errors)
-            images_with_errors += 1
-            report.append(str(img_path.name))
-            report.extend(image_errors)
-            report.append("")
-
-    save_path.write_text("\n".join(report) if report else "Nema pronadjenih gresaka.\n")
-    print(f"  Ukupno gresaka: {total_errors} na {images_with_errors} slika")
-    print(f"  Izvestaj sacuvan: {save_path}")
-
-
-# ──────────────────────────────────────────────
-# TRAINING SUMMARY
-# ──────────────────────────────────────────────
-
-def print_metrics(title: str, metrics) -> None:
-    p, r = metrics.box.mp, metrics.box.mr
-    print(f"\n{'─'*40}")
-    print(f" {title}")
-    print(f"{'─'*40}")
-    print(f"  mAP50:    {metrics.box.map50:.4f}")
-    print(f"  mAP50-95: {metrics.box.map:.4f}")
-    print(f"  Precision:{p:.4f}")
-    print(f"  Recall:   {r:.4f}")
-    print(f"  F1:       {detection_f1(p, r):.4f}")
-    print(f"{'─'*40}")
-
-
-def write_summary(save_dir: Path, val_metrics, test_metrics, device: str, actual_epochs: int) -> None:
-    def metric_block(title, m):
-        p, r = m.box.mp, m.box.mr
-        return [
-            f"{title}:",
-            f"  mAP50:    {m.box.map50:.4f}",
-            f"  mAP50-95: {m.box.map:.4f}",
-            f"  Precision:{p:.4f}",
-            f"  Recall:   {r:.4f}",
-            f"  F1:       {detection_f1(p, r):.4f}",
-        ]
-    
-    early_stopped = actual_epochs < EPOCHS
-
-    lines = [
-        "═══ TRAINING SUMMARY ═══",
-        "",
-        f"Uredjaj:  {device}",
-        f"Model:    {PRETRAINED}",
-        f"Epohe (max):   {EPOCHS}",
-        f"Epohe (zapravo): {actual_epochs}" + ("  (zaustavljeno early stopping-om)" if early_stopped else ""),
-        f"Imgsz:    {IMGSZ}",
-        f"Batch:    {BATCH}",
-        f"Patience: {PATIENCE}",
-        "",
-        *metric_block("Validacija (best.pt)", val_metrics),
-        "",
-        *metric_block("Test (best.pt)", test_metrics),
-    ]
-
-    summary_path = save_dir / "training_summary.txt"
-    summary_path.write_text("\n".join(lines) + "\n")
-    print(f"\nSummary sacuvan: {summary_path}")
-
-
-# ──────────────────────────────────────────────
 # MAIN
 # ──────────────────────────────────────────────
 
@@ -405,6 +177,10 @@ def main() -> None:
     # 2. Proveri dataset
     print("\nProveravam dataset...")
     check_dataset(data_yaml)
+
+    # 2b. Izvestaj o datasetu (raspodela klasa, broj macaka po slici, velicine bbox-ova)
+    print("\nGenerisem izvestaj o datasetu...")
+    generate_dataset_report(data_yaml, output_dir=Path(PROJECT_DIR) / RUN_NAME / "dataset_report")
 
     # 3. Pripremi val slike za snapshots
     import yaml
@@ -434,6 +210,19 @@ def main() -> None:
         workers=8,
         project=PROJECT_DIR,
         name=RUN_NAME,
+        # ── Augmentacije koje pomazu kod blizu-jedna-drugoj / preklapajucih maca ──
+        mosaic=MOSAIC,           # spaja 4 slike u jednu -> vise scena sa vise maca odjednom u treningu
+        copy_paste=COPY_PASTE,   # nasumicno lepi instance objekata iz drugih slika -> vise preklapanja u treningu
+        scale=SCALE,             # agresivnije skaliranje (zoom in/out) -> vise variacije u velicini/gustini maca
+        mixup=MIXUP,             # blago mesanje slika, pomaze generalizaciji
+        # ── Augmentacije koje pomazu kod "macka u travi" / kamuflaze ──
+        hsv_v=HSV_V,             # nasumicna promena osvetljenja -> model ne uci samo na jednoj svetlini scene
+        translate=TRANSLATE,     # nasumicno pomeranje slike -> macka se ne nalazi uvek na istom mestu u kadru
+        # ── Loss tezine: vise box, manje cls (samo 1 klasa, lokalizacija je bitnija) ──
+        box=BOX_GAIN,            # veca tezina box (lokalizacija) loss-a -> precizniji box-ovi -> bolje razdvajanje
+        cls=CLS_GAIN,            # manja tezina cls loss-a (1 klasa = klasifikacija je trivijalna)
+        # ── NMS prag koji se koristi i tokom validacije u treningu ──
+        iou=IOU_NMS,             # tolerantniji NMS prag prema preklapajucim box-ovima iste klase
     )
 
     save_dir   = Path(results.save_dir)
@@ -460,6 +249,7 @@ def main() -> None:
         imgsz=IMGSZ,
         batch=BATCH,
         device=device,
+        iou=IOU_NMS,
         project=PROJECT_DIR,
         name=f"{RUN_NAME}_validation",
         plots=True,
@@ -474,6 +264,7 @@ def main() -> None:
         imgsz=IMGSZ,
         batch=BATCH,
         device=device,
+        iou=IOU_NMS,
         project=PROJECT_DIR,
         name=f"{RUN_NAME}_test",
         plots=True,
@@ -484,7 +275,7 @@ def main() -> None:
     write_summary(save_dir, val_metrics, test_metrics, device, actual_epochs)
 
     # 8. Analiza grešaka
-    analyze_errors(best, val_images, val_labels_dir, device, save_dir / "validation_errors.txt")
+    analyze_errors(best, val_images, val_labels_dir, device, save_dir / "validation_errors.txt", read_labels)
 
     print("\nSve zavrseno!")
     print(f"Epoch snapshots: {save_dir / 'epoch_snapshots'}")
