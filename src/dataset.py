@@ -1,19 +1,3 @@
-"""
-dataset.py
-─────────────────────────────────────────────
-Sve funkcije vezane za DATASET: ucitavanje data.yaml, listanje slika/labela,
-provera ispravnosti (check_dataset), i STATISTIKA/VIZUALIZACIJA dataseta
-(distribucija klasa, velicina bbox-ova, broj objekata po slici).
-
-Ovo se radi PRE treninga — cilj je razumeti podatke, ne model. Posebno bitno
-za projekat: PDF zahtev "Dokumentacija jasno opisuje problem, podatke..."
-trazi bas ovakvu analizu.
-
-Upotreba:
-    from dataset import check_dataset, generate_dataset_report
-    generate_dataset_report()   # napravi sve grafike + bbox_summary.txt
-"""
-
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path

@@ -4,4 +4,4 @@ __pycache__/
 *.pt
 *.pyc
 .venv/
-*.zip
+*.zip*.pt

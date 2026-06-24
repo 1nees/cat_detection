@@ -8,11 +8,6 @@ from config import (
 )
 from analysis import print_metrics, plot_training_curves, plot_confusion_matrix, plot_predictions
 
-# Napomena: svi parametri se nalaze u config.py, a sve funkcije za
-# METRIKE/GRAFIKE se nalaze u analysis.py — menjaj ih tamo, ne ovde,
-# da budu uskladjene sa train.py.
-
-
 # ──────────────────────────────────────────────
 # MAIN
 # ──────────────────────────────────────────────
@@ -30,7 +25,6 @@ def main() -> None:
 
     model = YOLO(str(model_path))
 
-    # 1. Evaluacija na validacionom skupu
     print("\nPokrecem evaluaciju na validacionom skupu...")
     val_metrics = model.val(
         data=str(data_yaml),
@@ -60,19 +54,15 @@ def main() -> None:
     )
     print_metrics("TEST", test_metrics)
 
-    # 3. Grafik loss i metrika kroz epohe
     print("\nCrtam grafik treninga...")
     plot_training_curves(run_dir)
 
-    # 4. Matrica konfuzije
     print("\nPrikazujem matricu konfuzije...")
     plot_confusion_matrix(run_dir)
 
-    # 5. Predikcije na test slikama
     print("\nPrikazujem predikcije na test slikama...")
     plot_predictions(model, Path(IMAGES_TEST), n=6, title="test")
 
-    # 6. Predikcije na val slikama
     print("\nPrikazujem predikcije na validacionim slikama...")
     plot_predictions(model, Path(IMAGES_VAL), n=6, title="val")
 

@@ -1,18 +1,3 @@
-"""
-analysis.py
-─────────────────────────────────────────────
-Sve funkcije vezane za ANALIZU USPEHA modela: metrike, racunanje IoU-a,
-analiza gresaka (promaseno/visak/pogresan broj objekata), pisanje summary-ja
-i crtanje grafika (loss/metrike kroz epohe, matrica konfuzije, predikcije).
-
-Koristi je i train.py (na kraju treninga) i evaluate.py (samostalna evaluacija
-veec istreniranog modela) — tako da se ne duplira kod i da su definicije
-metrika garantovano iste na oba mesta.
-
-Upotreba:
-    from analysis import print_metrics, analyze_errors, write_summary, ...
-"""
-
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -27,14 +12,11 @@ from config import IMGSZ, BATCH, PATIENCE, EPOCHS, PRETRAINED, CONF_THRESHOLD, I
 # ──────────────────────────────────────────────
 
 def detection_f1(precision: float, recall: float) -> float:
-    """F1 skor iz precision i recall — harmonijska sredina, balansira oba."""
     return 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
 
 
 def box_iou(a: list, b: list) -> float:
-    """IoU (Intersection over Union) dva bounding box-a u xyxy formatu.
-    Koristi se za RUCNO poklapanje GT <-> predikcija u analizi gresaka
-    (razlikuje se od IOU_NMS koji kontrolise NMS prag u Ultralytics-u)."""
+    """ za predikciju u analizi gresaka """
     x1, y1 = max(a[0], b[0]), max(a[1], b[1])
     x2, y2 = min(a[2], b[2]), min(a[3], b[3])
     inter = max(0, x2 - x1) * max(0, y2 - y1)
@@ -45,8 +27,6 @@ def box_iou(a: list, b: list) -> float:
 
 
 def print_metrics(title: str, metrics) -> None:
-    """Ispisuje standardne YOLO metrike (mAP50, mAP50-95, Precision, Recall, F1)
-    za rezultat koji vraca model.val()."""
     p, r = metrics.box.mp, metrics.box.mr
     print(f"\n{'─'*40}")
     print(f" {title}")
@@ -65,13 +45,6 @@ def print_metrics(title: str, metrics) -> None:
 
 def analyze_errors(model: YOLO, image_paths: list, labels_dir: Path, device: str, save_path: Path,
                     read_labels_fn) -> None:
-    """Pokrece predikciju na svim image_paths i poredi sa GT labelama.
-    Belezi 4 tipa gresaka: PROMASENO (GT bez para), POGRESNA KLASA, VISAK
-    (lazna detekcija), i BROJ MACAKA (kad se broj GT i broj predikcija ne poklapaju
-    — najvazniji pokazatelj problema sa zbijenim/preklapajucim objektima).
-
-    read_labels_fn: funkcija read_labels(label_path, w, h) -> list[dict], prosledjena
-    iz train.py da ne moramo da duplujemo parsiranje YOLO label fajlova ovde."""
     print("\nAnaliziram greske na validacionom skupu...")
     from PIL import Image
 
@@ -162,7 +135,7 @@ def analyze_errors(model: YOLO, image_paths: list, labels_dir: Path, device: str
         avg_diff = sum(count_diffs) / len(count_diffs) if count_diffs else 0.0
         n_undercount = sum(1 for d in count_diffs if d < 0)  # model je prebrojao MANJE maca nego ih ima (manjak)
         n_overcount  = sum(1 for d in count_diffs if d > 0)  # model je prebrojao VISE maca nego ih ima (visak)
-        print(f"\n  ── Tacnost brojanja maca po slici ──")
+        print("\n  ── Tacnost brojanja maca po slici ──")
         print(f"  Slika sa pogresnim brojem: {count_mismatch_images}/{n_images} "
               f"({100 * count_mismatch_images / n_images:.1f}%)")
         print(f"  Od toga - manjak (NMS/preklapanje sumnja): {n_undercount}, visak (lazne detekcije): {n_overcount}")
@@ -178,8 +151,6 @@ def analyze_errors(model: YOLO, image_paths: list, labels_dir: Path, device: str
 # ──────────────────────────────────────────────
 
 def write_summary(save_dir: Path, val_metrics, test_metrics, device: str, actual_epochs: int) -> None:
-    """Pise training_summary.txt sa hiperparametrima i finalnim metrikama
-    (validacija + test) za brz pregled rezultata jednog treninga."""
     def metric_block(title, m):
         p, r = m.box.mp, m.box.mr
         return [
@@ -219,9 +190,6 @@ def write_summary(save_dir: Path, val_metrics, test_metrics, device: str, actual
 # ──────────────────────────────────────────────
 
 def plot_training_curves(run_dir: Path) -> None:
-    """Crta i cuva grafik loss-a (box/cls kroz epohe) i metrika (mAP50,
-    mAP50-95, Precision, Recall) na osnovu results.csv koji Ultralytics
-    automatski generise tokom treninga."""
     results_csv = run_dir / "results.csv"
     if not results_csv.exists():
         print(f"Nema results.csv u {run_dir}, preskacam grafik treninga.")
@@ -265,8 +233,6 @@ def plot_training_curves(run_dir: Path) -> None:
 # ──────────────────────────────────────────────
 
 def plot_confusion_matrix(run_dir: Path) -> None:
-    """Prikazuje confusion_matrix.png koji Ultralytics automatski generise
-    pri model.val(plots=True)."""
     cm_path = run_dir / "confusion_matrix.png"
     if not cm_path.exists():
         print(f"Nema confusion_matrix.png u {run_dir}, preskacam.")

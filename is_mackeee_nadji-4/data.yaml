@@ -1,0 +1,12 @@
+names:
+- macka
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: is_mackeee_nadji
+  url: https://universe.roboflow.com/miljanas-workspace/is_mackeee_nadji/dataset/4
+  version: 4
+  workspace: miljanas-workspace
+test: ../test/images
+train: ../train/images
+val: ../valid/images

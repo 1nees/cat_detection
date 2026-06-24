@@ -15,11 +15,6 @@ from config import (
 from analysis import print_metrics, write_summary, analyze_errors
 from dataset import check_dataset, list_images, resolve_split_dir, generate_dataset_report
 
-# Napomena: svi hiperparametri se nalaze u config.py, sve funkcije za
-# METRIKE/ANALIZU GRESAKA/SUMMARY u analysis.py, a sve funkcije vezane za
-# DATASET (provera, statistika, putanje) u dataset.py — menjaj ih tamo,
-# ne ovde, da budu uskladjene sa evaluate.py.
-
 # ──────────────────────────────────────────────
 # POMOĆNE FUNKCIJE
 # ──────────────────────────────────────────────
@@ -65,11 +60,6 @@ def read_labels(label_path: Path, w: int, h: int) -> list[dict]:
             "box": yolo_to_xyxy([float(v) for v in parts[1:5]], w, h),
         })
     return labels
-
-
-# box_iou i detection_f1 su u analysis.py.
-# check_dataset, list_images, resolve_split_dir su u dataset.py.
-
 
 # ──────────────────────────────────────────────
 # EPOCH VALIDATION SNAPSHOTS
@@ -168,21 +158,17 @@ def main() -> None:
     device = resolve_device()
     print(f"Uredjaj: {device}")
 
-    # 1. Preuzmi dataset
     print("\nPreuzimam dataset sa Roboflowa...")
     rf = Roboflow(api_key=API_KEY)
     dataset = rf.workspace(WORKSPACE).project(PROJECT_NAME).version(VERSION).download("yolov8")
     data_yaml = Path(dataset.location) / "data.yaml"
 
-    # 2. Proveri dataset
     print("\nProveravam dataset...")
     check_dataset(data_yaml)
 
-    # 2b. Izvestaj o datasetu (raspodela klasa, broj macaka po slici, velicine bbox-ova)
     print("\nGenerisem izvestaj o datasetu...")
     generate_dataset_report(data_yaml, output_dir=Path(PROJECT_DIR) / RUN_NAME / "dataset_report")
 
-    # 3. Pripremi val slike za snapshots
     import yaml
     cfg = yaml.safe_load(data_yaml.read_text())
     base = data_yaml.parent
@@ -190,11 +176,9 @@ def main() -> None:
     val_labels_dir = Path(str(val_images_dir).replace("images", "labels"))
     val_images = list_images(val_images_dir)
 
-    # 4. Trening
     print(f"\nPokrecem trening ({EPOCHS} epoha, patience={PATIENCE})...")
     model = YOLO(PRETRAINED)
 
-    # Snapshot folder — znaćemo ga tek posle treninga, privremeno koristimo placeholder
     snapshot_save_dir = Path(PROJECT_DIR) / RUN_NAME
     add_snapshot_callback(model, val_images, val_labels_dir, snapshot_save_dir, device)
 
@@ -210,19 +194,15 @@ def main() -> None:
         workers=8,
         project=PROJECT_DIR,
         name=RUN_NAME,
-        # ── Augmentacije koje pomazu kod blizu-jedna-drugoj / preklapajucih maca ──
-        mosaic=MOSAIC,           # spaja 4 slike u jednu -> vise scena sa vise maca odjednom u treningu
-        copy_paste=COPY_PASTE,   # nasumicno lepi instance objekata iz drugih slika -> vise preklapanja u treningu
-        scale=SCALE,             # agresivnije skaliranje (zoom in/out) -> vise variacije u velicini/gustini maca
-        mixup=MIXUP,             # blago mesanje slika, pomaze generalizaciji
-        # ── Augmentacije koje pomazu kod "macka u travi" / kamuflaze ──
-        hsv_v=HSV_V,             # nasumicna promena osvetljenja -> model ne uci samo na jednoj svetlini scene
-        translate=TRANSLATE,     # nasumicno pomeranje slike -> macka se ne nalazi uvek na istom mestu u kadru
-        # ── Loss tezine: vise box, manje cls (samo 1 klasa, lokalizacija je bitnija) ──
-        box=BOX_GAIN,            # veca tezina box (lokalizacija) loss-a -> precizniji box-ovi -> bolje razdvajanje
-        cls=CLS_GAIN,            # manja tezina cls loss-a (1 klasa = klasifikacija je trivijalna)
-        # ── NMS prag koji se koristi i tokom validacije u treningu ──
-        iou=IOU_NMS,             # tolerantniji NMS prag prema preklapajucim box-ovima iste klase
+        mosaic=MOSAIC,           
+        copy_paste=COPY_PASTE,   
+        scale=SCALE,             
+        mixup=MIXUP,             
+        hsv_v=HSV_V,         
+        translate=TRANSLATE, 
+        box=BOX_GAIN,      
+        cls=CLS_GAIN,          
+        iou=IOU_NMS,           
     )
 
     save_dir   = Path(results.save_dir)
@@ -271,10 +251,8 @@ def main() -> None:
     )
     print_metrics("TEST", test_metrics)
 
-    # 7. Training summary
     write_summary(save_dir, val_metrics, test_metrics, device, actual_epochs)
 
-    # 8. Analiza grešaka
     analyze_errors(best, val_images, val_labels_dir, device, save_dir / "validation_errors.txt", read_labels)
 
     print("\nSve zavrseno!")
