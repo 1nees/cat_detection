@@ -5,8 +5,18 @@
 !src/
 !src/**
 
+# Dozvoli SAMO foldere (ne fajlove) u lancu do weights/
+!runs/
+!runs/detect/
+!runs/detect/runs/
+!runs/detect/runs/train/
+!runs/detect/runs/train/cat_detection-3-8/
+!runs/detect/runs/train/cat_detection-3-8/weights/
+
+# Dozvoli SAMO best.pt unutar weights foldera
+!runs/detect/runs/train/cat_detection-3-8/weights/best.pt
+
 # Dozvoli specifične fajlove koje želite
 !README.md
-!best.pt
 !.gitignore
 !pyproject.toml

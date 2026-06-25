@@ -16,14 +16,10 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 # ──────────────────────────────────────────────
 
 def load_dataset_config(data_yaml: str | Path = DATA_YAML) -> dict:
-    """Cita data.yaml (nc, names, train/val/test putanje) koji Roboflow generise."""
     return yaml.safe_load(Path(data_yaml).read_text())
 
 
 def resolve_split_dir(base: Path, split_path: str) -> Path:
-    """Roboflow upisuje putanje u data.yaml kao '../train/images', ali train/valid/test
-    folderi su u stvarnosti na istom nivou kao data.yaml (ne iznad). Skidamo taj
-    '../' prefiks da bismo dobili tacnu putanju relativnu na folder gde je data.yaml."""
     if split_path.startswith("../"):
         split_path = split_path[3:]
     return (base / split_path).resolve()
@@ -59,7 +55,6 @@ def get_class_names(cfg: dict) -> list[str]:
 
 
 def parse_label_file(label_path: Path) -> list[tuple[int, float, float, float, float]]:
-    """Cita YOLO label fajl, vraca listu (class_id, x_center, y_center, width, height) — sve normalizovano 0..1."""
     boxes = []
     if not label_path.exists():
         return boxes
@@ -79,9 +74,6 @@ def parse_label_file(label_path: Path) -> list[tuple[int, float, float, float, f
 # ──────────────────────────────────────────────
 
 def check_dataset(data_yaml: Path) -> None:
-    """Provera da svaki split ima slike+labele, da su labele dobrog formata,
-    da klase postoje i da su koordinate normalizovane (0..1). Baca ValueError
-    sa spiskom problema ako nesto nije u redu."""
     cfg = yaml.safe_load(data_yaml.read_text())
     class_count = int(cfg.get("nc", len(cfg.get("names", []))))
     errors = []
@@ -152,8 +144,6 @@ class SplitStats:
 
 
 def bbox_size_category(area: float) -> str:
-    """Kategorizuje bbox po povrsini (% slike) — mali objekti su tezi za detekciju
-    i tipicno bas oni u gusto pakovanim/preklapajucim scenama."""
     if area < 0.01:
         return "tiny <1%"
     if area < 0.05:
@@ -203,9 +193,6 @@ def print_dataset_summary(data_yaml: str | Path = DATA_YAML) -> None:
 
 
 def objects_per_image(cfg: dict, split: str, data_yaml: str | Path = DATA_YAML) -> list[int]:
-    """Za svaku sliku u split-u, broj GT objekata na njoj. Ovo je distribucija
-    koja direktno pokazuje koliko cesto se javljaju scene sa vise macaka
-    (zbijene/preklapajuce) — kontekst za NMS/count-mismatch analizu u analysis.py."""
     images_dir = split_image_dir(cfg, split, data_yaml)
     labels_dir = split_label_dir(cfg, split, data_yaml)
     counts = []
@@ -216,7 +203,6 @@ def objects_per_image(cfg: dict, split: str, data_yaml: str | Path = DATA_YAML) 
 
 
 def bbox_areas(cfg: dict, split: str, data_yaml: str | Path = DATA_YAML) -> list[float]:
-    """Povrsina (width*height, normalizovano 0..1) svakog bbox-a u split-u."""
     labels_dir = split_label_dir(cfg, split, data_yaml)
     areas = []
     for label_path in list_labels(labels_dir):
@@ -251,9 +237,6 @@ def plot_class_distribution_by_split(summary: dict[str, SplitStats], class_names
 
 
 def plot_objects_per_image(cfg: dict, data_yaml: str | Path = DATA_YAML) -> plt.Figure:
-    """Histogram: koliko slika ima 0, 1, 2, 3... macaka. Direktno pokazuje
-    koliko je 'tezak' dataset u smislu zbijenih/preklapajucih scena —
-    sto je vise slika sa 2+ macke, vise prilike da NMS pogresno spoji detekcije."""
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for split in ("train", "val", "test"):
         if split not in cfg:
@@ -273,9 +256,6 @@ def plot_objects_per_image(cfg: dict, data_yaml: str | Path = DATA_YAML) -> plt.
 
 
 def plot_bbox_size_categories(cfg: dict, data_yaml: str | Path = DATA_YAML) -> plt.Figure:
-    """Koliko bbox-ova spada u tiny/small/medium/large kategoriju, po splitu.
-    Mali bbox-ovi (tiny/small) su tezi za lokalizaciju i tipicno upravo oni
-    iz zbijenih/dalekih scena — direktna veza sa NMS/preklapanje problemom."""
     categories = ["tiny <1%", "small 1-5%", "medium 5-20%", "large >20%"]
     splits = [s for s in ("train", "val", "test") if s in cfg]
     counts = {
@@ -301,8 +281,6 @@ def plot_bbox_size_categories(cfg: dict, data_yaml: str | Path = DATA_YAML) -> p
 
 
 def plot_bbox_area_histogram(cfg: dict, data_yaml: str | Path = DATA_YAML) -> plt.Figure:
-    """Histogram povrsine bbox-ova (% slike) po splitu — kontinuirana verzija
-    gornjeg grafika, korisna da se vidi i raspon unutar kategorija."""
     fig, ax = plt.subplots(figsize=(8, 4.5))
     for split in ("train", "val", "test"):
         if split not in cfg:
@@ -321,7 +299,6 @@ def plot_bbox_area_histogram(cfg: dict, data_yaml: str | Path = DATA_YAML) -> pl
 
 
 def bbox_text_summary(cfg: dict, data_yaml: str | Path = DATA_YAML) -> str:
-    """Tekstualni rezime (min/median/max povrsina, broj po kategoriji) za izvestaj."""
     class_names = get_class_names(cfg)
     lines = ["BBox summary", ""]
 
@@ -349,13 +326,11 @@ def bbox_text_summary(cfg: dict, data_yaml: str | Path = DATA_YAML) -> str:
 
 
 # ──────────────────────────────────────────────
-# GLAVNI IZVESTAJ — pokreni samostalno pre treninga
+# GLAVNI IZVESTAJ 
 # ──────────────────────────────────────────────
 
 def generate_dataset_report(data_yaml: str | Path = DATA_YAML,
                              output_dir: str | Path | None = None) -> Path:
-    """Generise sve grafike + bbox_summary.txt u jedan folder. Pokreni OVO
-    pre treninga da dobijes pregled dataseta za dokumentaciju projekta."""
     cfg = load_dataset_config(data_yaml)
     class_names = get_class_names(cfg)
     summary = dataset_summary(data_yaml)
