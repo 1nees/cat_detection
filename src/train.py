@@ -4,6 +4,7 @@ import torch
 from PIL import Image, ImageDraw
 from roboflow import Roboflow
 from ultralytics import YOLO
+import glob
 
 from config import (
     API_KEY, WORKSPACE, PROJECT_NAME, VERSION,
@@ -256,6 +257,11 @@ def main() -> None:
     analyze_errors(best, val_images, val_labels_dir, device, save_dir / "validation_errors.txt", read_labels)
 
     print("\nSve zavrseno!")
+    
+    # Obrisi yolo cache fajlove
+    for f in glob.glob("yolo*.pt"):
+        Path(f).unlink(missing_ok=True)
+
     print(f"Epoch snapshots: {save_dir / 'epoch_snapshots'}")
     print(f"Greske: {save_dir / 'validation_errors.txt'}")
     print(f"Summary: {save_dir / 'training_summary.txt'}")

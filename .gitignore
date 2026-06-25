@@ -1,7 +1,11 @@
-data/
-runs/
-__pycache__/
-*.pt
-*.pyc
-.venv/
-*.zip*.pt
+# Ignoriši sve
+*
+
+# Dozvoli src folder i sve u njemu
+!src/
+!src/**
+
+# Dozvoli specifične fajlove koje želite
+!README.md
+!best.pt
+!.gitignore
