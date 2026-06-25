@@ -110,10 +110,10 @@ Rezultati najboljeg modela (`best.pt`):
 
 Model dobro detektuje macke i na validation i na test skupu, sa konzistentnim rezultatima izmedju ta dva skupa.
 
-Na validation skupu, u `validation_errors.txt` pronadjeno je **24 slike sa greškama**:
+Na validation skupu, u `validation_errors.txt` pronadjeno je **35 slike sa greškama**:
 
-- 15 promašenih macaka (model nije detektovao objekat koji postoji)
-- 9 viška detekcija (lažne detekcije macke koja ne postoji)
+- 24 promašenih macaka (model nije detektovao objekat koji postoji)
+- 11 viška detekcija (lažne detekcije macke koja ne postoji)
 
 Najčešća greška je manjak jedne detekcije po slici, dok je jedna slika imala 4 promašene macke odjednom (slika sa više macaka na gomili). Lažne detekcije su uglavnom imale nizak confidence (0.50–0.66), što ukazuje da bi viša granica pouzdanosti pri predikciji mogla smanjiti broj viška detekcija.
 
